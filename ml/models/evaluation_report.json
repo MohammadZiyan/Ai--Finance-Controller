@@ -1,149 +1,149 @@
 {
-  "dataset_size": 100800,
-  "train_size": 80000,
-  "validation_size": 10000,
-  "test_size": 10000,
+  "dataset_size": 504037,
+  "train_size": 400000,
+  "validation_size": 50000,
+  "test_size": 50000,
   "binary_metrics": {
-    "roc_auc": 0.8548068589802045,
-    "accuracy": 0.973,
-    "precision": 0.9962894248608535,
-    "recall": 0.6670807453416149,
-    "f1": 0.7991071428571429,
+    "roc_auc": 0.8432534639699946,
+    "accuracy": 0.97224,
+    "precision": 0.9984790874524715,
+    "recall": 0.6548628428927681,
+    "f1": 0.7909638554216868,
     "confusion_matrix": [
       [
-        9193,
-        2
+        45986,
+        4
       ],
       [
-        268,
-        537
+        1384,
+        2626
       ]
     ]
   },
   "multiclass_metrics": {
-    "accuracy": 0.7925,
-    "macro_f1": 0.6600809966706627,
-    "weighted_f1": 0.8619547620172844,
+    "accuracy": 0.4182,
+    "macro_f1": 0.6246612563158838,
+    "weighted_f1": 0.566027142736371,
     "per_class": {
       "duplicate_payment": {
         "precision": 1.0,
         "recall": 1.0,
         "f1-score": 1.0,
-        "support": 71.0
+        "support": 406.0
       },
       "fee_mismatch": {
         "precision": 1.0,
         "recall": 1.0,
         "f1-score": 1.0,
-        "support": 71.0
+        "support": 397.0
       },
       "missing_settlement": {
         "precision": 1.0,
         "recall": 1.0,
         "f1-score": 1.0,
-        "support": 85.0
+        "support": 398.0
       },
       "none": {
-        "precision": 0.9722808870116156,
-        "recall": 0.8010875475802066,
-        "f1-score": 0.8784210840140719,
-        "support": 9195.0
+        "precision": 0.9761257341744616,
+        "recall": 0.39028049575994783,
+        "f1-score": 0.5576128491099444,
+        "support": 45990.0
       },
       "refund_mismatch": {
-        "precision": 0.015355086372360844,
-        "recall": 0.10526315789473684,
-        "f1-score": 0.02680067001675042,
-        "support": 76.0
+        "precision": 0.010176168070904913,
+        "recall": 0.21728971962616822,
+        "f1-score": 0.019441831295076827,
+        "support": 428.0
       },
       "settlement_mismatch": {
         "precision": 1.0,
         "recall": 1.0,
         "f1-score": 1.0,
-        "support": 159.0
+        "support": 680.0
       },
       "timing_anomaly": {
-        "precision": 0.009823182711198428,
-        "recall": 0.058823529411764705,
-        "f1-score": 0.016835016835016835,
-        "support": 85.0
+        "precision": 0.00885478158205431,
+        "recall": 0.1918158567774936,
+        "f1-score": 0.01692811195124704,
+        "support": 391.0
       },
       "unusual_amount": {
         "precision": 1.0,
         "recall": 1.0,
         "f1-score": 1.0,
-        "support": 151.0
+        "support": 745.0
       },
       "velocity_anomaly": {
-        "precision": 0.010501750291715286,
-        "recall": 0.08411214953271028,
-        "f1-score": 0.01867219917012448,
-        "support": 107.0
+        "precision": 0.014678737804342094,
+        "recall": 0.29557522123893804,
+        "f1-score": 0.027968514486685647,
+        "support": 565.0
       },
-      "accuracy": 0.7925,
+      "accuracy": 0.4182,
       "macro avg": {
-        "precision": 0.6675512118207656,
-        "recall": 0.6721429316021577,
-        "f1-score": 0.6600809966706627,
-        "support": 10000.0
+        "precision": 0.6677594912924181,
+        "recall": 0.677217921489172,
+        "f1-score": 0.6246612563158838,
+        "support": 50000.0
       },
       "weighted avg": {
-        "precision": 0.948024840044777,
-        "recall": 0.7925,
-        "f1-score": 0.8619547620172844,
-        "support": 10000.0
+        "precision": 0.9506826724215174,
+        "recall": 0.4182,
+        "f1-score": 0.566027142736371,
+        "support": 50000.0
       }
     }
   },
   "top_features": [
     {
       "feature": "fee_rate",
-      "binary_importance": 434,
-      "multiclass_importance": 3961
-    },
-    {
-      "feature": "tax_fee_ratio",
-      "binary_importance": 383,
-      "multiclass_importance": 4414
-    },
-    {
-      "feature": "risk_score",
-      "binary_importance": 351,
-      "multiclass_importance": 2825
-    },
-    {
-      "feature": "avg_transaction_amount",
-      "binary_importance": 334,
-      "multiclass_importance": 2761
+      "binary_importance": 489,
+      "multiclass_importance": 3712
     },
     {
       "feature": "set_pay_delay_days",
-      "binary_importance": 324,
-      "multiclass_importance": 3925
+      "binary_importance": 405,
+      "multiclass_importance": 3104
     },
     {
-      "feature": "amount_to_avg_ratio",
-      "binary_importance": 314,
-      "multiclass_importance": 2920
+      "feature": "tax_fee_ratio",
+      "binary_importance": 325,
+      "multiclass_importance": 3802
+    },
+    {
+      "feature": "risk_score",
+      "binary_importance": 312,
+      "multiclass_importance": 2465
     },
     {
       "feature": "amount",
-      "binary_importance": 268,
-      "multiclass_importance": 2859
+      "binary_importance": 281,
+      "multiclass_importance": 4784
+    },
+    {
+      "feature": "avg_transaction_amount",
+      "binary_importance": 277,
+      "multiclass_importance": 2163
+    },
+    {
+      "feature": "amount_to_avg_ratio",
+      "binary_importance": 240,
+      "multiclass_importance": 2180
+    },
+    {
+      "feature": "business_type",
+      "binary_importance": 223,
+      "multiclass_importance": 926
     },
     {
       "feature": "hour",
-      "binary_importance": 180,
-      "multiclass_importance": 1442
+      "binary_importance": 173,
+      "multiclass_importance": 1562
     },
     {
       "feature": "settlement_net_diff",
-      "binary_importance": 156,
-      "multiclass_importance": 2014
-    },
-    {
-      "feature": "pay_ord_delay_sec",
-      "binary_importance": 145,
-      "multiclass_importance": 855
+      "binary_importance": 168,
+      "multiclass_importance": 2094
     }
   ]
 }

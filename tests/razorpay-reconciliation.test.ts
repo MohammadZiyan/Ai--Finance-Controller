@@ -1,4 +1,31 @@
-import { describe, test, expect } from "vitest";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+
+function expect(actual: any) {
+  return {
+    toBe(expected: any) { assert.strictEqual(actual, expected); },
+    toMatch(regex: RegExp) { assert.match(String(actual), regex); },
+    toBeDefined() { assert.notStrictEqual(actual, undefined); },
+    toBeUndefined() { assert.strictEqual(actual, undefined); },
+    toBeGreaterThan(expected: number) { assert.ok(actual > expected, `${actual} not > ${expected}`); },
+    toBeGreaterThanOrEqual(expected: number) { assert.ok(actual >= expected, `${actual} not >= ${expected}`); },
+    toBeLessThan(expected: number) { assert.ok(actual < expected, `${actual} not < ${expected}`); },
+    toBeLessThanOrEqual(expected: number) { assert.ok(actual <= expected, `${actual} not <= ${expected}`); },
+    not: {
+      toBe(expected: any) { assert.notStrictEqual(actual, expected); },
+    },
+  };
+}
+
+const testEach = (table: any[][]) => (title: string, fn: (...args: any[]) => void) => {
+  for (const row of table) {
+    let formatted = title;
+    for (const val of row) {
+      formatted = formatted.replace("%s", String(val));
+    }
+    test(formatted, () => fn(...row));
+  }
+};
 import {
   extractUTR,
   isRazorpayTransaction,
@@ -201,7 +228,7 @@ describe("Settlement Date Similarity", () => {
  * ───────────────────────────────────────────────────────────────────────────── */
 
 describe("Razorpay Merchant Normalization", () => {
-  test.each([
+  testEach([
     ["RZP*SETTLEMENT UPI", "razorpay"],
     ["RAZORPAY SOFTWARE PVT LTD", "razorpay"],
     ["RAZORPAY GATEWAY BANGALORE", "razorpay"],
@@ -210,13 +237,13 @@ describe("Razorpay Merchant Normalization", () => {
     ["RAZORPAY CORP BENGALURU", "razorpay"],
     ["RAZORPAY UPI COLLECTION", "razorpay"],
     ["IMPS*RZP UPI SETTLE", "razorpay"],
-  ])("normalizes '%s' to '%s'", (input, expected) => {
+  ])("normalizes '%s' to '%s'", (input: string, expected: string) => {
     expect(normalizeMerchantName(input)).toBe(expected);
   });
 });
 
 describe("Payment Method Normalization", () => {
-  test.each([
+  testEach([
     ["UPI", "UPI"],
     ["upi", "UPI"],
     ["CARD", "CARD"],
@@ -228,7 +255,7 @@ describe("Payment Method Normalization", () => {
     ["Paytm", "WALLET"],
     ["EMI", "EMI"],
     ["pay later", "PAY_LATER"],
-  ])("normalizes '%s' to '%s'", (input, expected) => {
+  ])("normalizes '%s' to '%s'", (input: string, expected: string) => {
     expect(normalizePaymentMethod(input)).toBe(expected);
   });
 });

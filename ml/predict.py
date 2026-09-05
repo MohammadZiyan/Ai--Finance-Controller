@@ -189,8 +189,30 @@ class FinanceAnomalyPredictor:
             pred = self.predict_single(row.to_dict())
             results.append(pred)
 
+        # Disambiguate ground-truth/merchant columns to avoid collisions
+        rename_map = {}
+        if "is_anomaly" in df.columns:
+            rename_map["is_anomaly"] = "gt_is_anomaly"
+        if "risk_score" in df.columns:
+            rename_map["risk_score"] = "merchant_risk_score"
+        if "anomaly_type" in df.columns:
+            rename_map["anomaly_type"] = "gt_anomaly_type"
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
         res_df = pd.DataFrame(results)
         return pd.concat([df.reset_index(drop=True), res_df], axis=1)
+
+
+DEFAULT_DATA_DIR = (
+    r"C:\Users\ziyan\Downloads\ai_finance_controller_500k_dataset"
+    if os.path.exists(r"C:\Users\ziyan\Downloads\ai_finance_controller_500k_dataset")
+    else (
+        r"C:\Users\ziyan\Downloads\ai_finance_controller_100k_dataset"
+        if os.path.exists(r"C:\Users\ziyan\Downloads\ai_finance_controller_100k_dataset")
+        else None
+    )
+)
 
 
 def main() -> None:
@@ -198,7 +220,7 @@ def main() -> None:
     parser.add_argument("--model-dir", type=str, default=None, help="Directory containing saved models")
     parser.add_argument("--input-csv", type=str, default=None, help="CSV file for batch prediction")
     parser.add_argument("--output-csv", type=str, default=None, help="Output destination CSV file")
-    parser.add_argument("--data-dir", type=str, default=None, help="Path to 100k multi-table dataset directory")
+    parser.add_argument("--data-dir", type=str, default=None, help="Path to multi-table dataset directory (500k / 100k)")
     parser.add_argument("--split", type=str, default="test", help="Dataset split (train, validation, test)")
     parser.add_argument("--limit", type=int, default=20, help="Number of records to evaluate")
     args = parser.parse_args()
@@ -209,6 +231,8 @@ def main() -> None:
         res = predictor.predict_from_dataset(args.data_dir, split=args.split, limit=args.limit)
         print(f"\n--- Evaluated {len(res)} records from {args.split} split ---")
         cols = ["payment_id", "amount", "is_anomaly", "risk_score", "predicted_anomaly_type", "recommendation"]
+        if "gt_anomaly_type" in res.columns:
+            cols.insert(2, "gt_anomaly_type")
         print(res[cols].to_string(index=False))
         if args.output_csv:
             res.to_csv(args.output_csv, index=False)

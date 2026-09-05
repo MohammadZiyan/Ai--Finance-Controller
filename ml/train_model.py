@@ -1,6 +1,6 @@
 """
 Model training and evaluation pipeline for AI Finance Controller.
-Trains gradient-boosted models on the 100K finance dataset:
+Trains gradient-boosted models on the multi-table finance dataset (500K / 100K):
 1. Binary Anomaly Classifier: predicts whether a transaction has an anomaly / exception.
 2. Multi-Class Exception Classifier: predicts the exact category of financial anomaly.
 """
@@ -72,6 +72,7 @@ def train_and_evaluate(
         learning_rate=learning_rate,
         random_state=42,
         class_weight="balanced",
+        n_jobs=-1,
         verbose=-1,
     )
     bin_model.fit(
@@ -107,6 +108,7 @@ def train_and_evaluate(
         learning_rate=learning_rate,
         random_state=42,
         class_weight="balanced",
+        n_jobs=-1,
         verbose=-1,
     )
     multi_model.fit(
@@ -205,13 +207,20 @@ def train_and_evaluate(
     return report
 
 
+DEFAULT_DATA_DIR = (
+    r"C:\Users\ziyan\Downloads\ai_finance_controller_500k_dataset"
+    if os.path.exists(r"C:\Users\ziyan\Downloads\ai_finance_controller_500k_dataset")
+    else r"C:\Users\ziyan\Downloads\ai_finance_controller_100k_dataset"
+)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train AI Finance Controller ML models")
     parser.add_argument(
         "--data-dir",
         type=str,
-        default=r"C:\Users\ziyan\Downloads\ai_finance_controller_100k_dataset",
-        help="Path to folder containing CSV files",
+        default=DEFAULT_DATA_DIR,
+        help="Path to folder containing CSV files (defaults to 500k if available, else 100k)",
     )
     parser.add_argument(
         "--output-dir",

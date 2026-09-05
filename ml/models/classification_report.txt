@@ -1,41 +1,41 @@
 === AI Finance Controller ML Evaluation Report ===
 
 --- Binary Model (is_anomaly) ---
-ROC-AUC: 0.8548
-Accuracy: 0.9730
-Precision: 0.9963
-Recall: 0.6671
-F1 Score: 0.7991
+ROC-AUC: 0.8433
+Accuracy: 0.9722
+Precision: 0.9985
+Recall: 0.6549
+F1 Score: 0.7910
 Confusion Matrix:
-[[9193    2]
- [ 268  537]]
+[[45986     4]
+ [ 1384  2626]]
 
 --- Multi-Class Exception Classifier ---
                      precision    recall  f1-score   support
 
-  duplicate_payment       1.00      1.00      1.00        71
-       fee_mismatch       1.00      1.00      1.00        71
- missing_settlement       1.00      1.00      1.00        85
-               none       0.97      0.80      0.88      9195
-    refund_mismatch       0.02      0.11      0.03        76
-settlement_mismatch       1.00      1.00      1.00       159
-     timing_anomaly       0.01      0.06      0.02        85
-     unusual_amount       1.00      1.00      1.00       151
-   velocity_anomaly       0.01      0.08      0.02       107
+  duplicate_payment       1.00      1.00      1.00       406
+       fee_mismatch       1.00      1.00      1.00       397
+ missing_settlement       1.00      1.00      1.00       398
+               none       0.98      0.39      0.56     45990
+    refund_mismatch       0.01      0.22      0.02       428
+settlement_mismatch       1.00      1.00      1.00       680
+     timing_anomaly       0.01      0.19      0.02       391
+     unusual_amount       1.00      1.00      1.00       745
+   velocity_anomaly       0.01      0.30      0.03       565
 
-           accuracy                           0.79     10000
-          macro avg       0.67      0.67      0.66     10000
-       weighted avg       0.95      0.79      0.86     10000
+           accuracy                           0.42     50000
+          macro avg       0.67      0.68      0.62     50000
+       weighted avg       0.95      0.42      0.57     50000
 
 
 --- Top 10 Feature Importances ---
-  fee_rate: binary=434, multiclass=3961
-  tax_fee_ratio: binary=383, multiclass=4414
-  risk_score: binary=351, multiclass=2825
-  avg_transaction_amount: binary=334, multiclass=2761
-  set_pay_delay_days: binary=324, multiclass=3925
-  amount_to_avg_ratio: binary=314, multiclass=2920
-  amount: binary=268, multiclass=2859
-  hour: binary=180, multiclass=1442
-  settlement_net_diff: binary=156, multiclass=2014
-  pay_ord_delay_sec: binary=145, multiclass=855
+  fee_rate: binary=489, multiclass=3712
+  set_pay_delay_days: binary=405, multiclass=3104
+  tax_fee_ratio: binary=325, multiclass=3802
+  risk_score: binary=312, multiclass=2465
+  amount: binary=281, multiclass=4784
+  avg_transaction_amount: binary=277, multiclass=2163
+  amount_to_avg_ratio: binary=240, multiclass=2180
+  business_type: binary=223, multiclass=926
+  hour: binary=173, multiclass=1562
+  settlement_net_diff: binary=168, multiclass=2094

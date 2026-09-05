@@ -213,13 +213,18 @@ function getDbInstance() {
     return dummyProxy;
   }
 
+  const isTest = process.env.NODE_ENV === "test" || process.env.npm_lifecycle_event === "test" || process.argv.some(arg => arg.includes("test"));
+
   let pglite: PGlite;
-  const dataDir = path.resolve(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  const pglitePath = path.resolve(dataDir, "pgdata");
-    
+  if (isTest) {
+    pglite = new PGlite();
+  } else {
+    const dataDir = path.resolve(process.cwd(), "data");
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const pglitePath = path.resolve(dataDir, "pgdata");
+      
     // Auto-clean stale lockfile from unclean shutdowns
     cleanupStaleLock(pglitePath);
 
@@ -234,12 +239,13 @@ function getDbInstance() {
         pglite = new PGlite();
       }
     }
+  }
 
   globalForDb.__financePglite = pglite;
 
   // Initiate schema initialization at runtime (skip during static build analysis)
   if (!isBuild) {
-    pglite.exec(INIT_SCHEMA_SQL).catch((err) => {
+    ensureDbReady().catch((err) => {
       console.warn("Embedded database schema initialization notice:", err?.message || err);
     });
   }
