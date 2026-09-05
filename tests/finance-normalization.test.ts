@@ -5,6 +5,11 @@ import { normalizeMerchantName, normalizeReference } from "@/lib/finance/normali
 test("merchant alias normalization", () => {
   assert.equal(normalizeMerchantName("AMZN WEB SERVICES INDIA PVT LTD"), "amazon web services");
   assert.equal(normalizeMerchantName("AWS INDIA"), "amazon web services");
+  assert.equal(normalizeMerchantName("STRIPE PAYMENTS INDIA PVT LTD"), "stripe");
+  assert.equal(normalizeMerchantName("RAZORPAY SOFTWARE PVT LTD"), "razorpay");
+  assert.equal(normalizeMerchantName("OPENAI LLC"), "openai");
+  assert.equal(normalizeMerchantName("SFDC INDIA"), "salesforce");
+  assert.equal(normalizeMerchantName("SNOWFLAKE COMPUTING INC"), "snowflake");
 });
 
 test("reference normalization", () => {

@@ -1,5 +1,5 @@
 import { getLLMProvider } from "@/lib/finance/llm-provider";
-import { normalizeMerchantName, normalizeReference } from "@/lib/finance/normalization";
+import { extractUTR, isRazorpayTransaction, normalizeMerchantName, normalizeReference } from "@/lib/finance/normalization";
 import { evaluateRun } from "@/lib/finance/evaluation";
 import {
   amountSimilarity,
@@ -7,8 +7,13 @@ import {
   dateDiffDays,
   dateSimilarity,
   DEFAULT_WEIGHTS,
+  feeSimilarity,
+  gstAccuracy,
+  RAZORPAY_WEIGHTS,
   referenceSimilarity,
+  settlementDateSimilarity,
   tokenJaccardSimilarity,
+  utrSimilarity,
 } from "@/lib/finance/scoring";
 import type {
   BankTransaction,
@@ -121,7 +126,21 @@ function createException(
                     ? "Validate whether difference equals documented processing fee."
                     : type === "CURRENCY_MISMATCH"
                       ? "Verify FX conversion and reporting currency policy."
-                      : "Human review required to resolve ambiguity safely.",
+                      : type === "REFUND_MISMATCH"
+                        ? "Cross-verify refund amount against Razorpay dashboard and confirm refund processing timeline."
+                        : type === "CHARGEBACK"
+                          ? "Check dispute status in Razorpay dashboard. Submit evidence within SLA if dispute is contestable."
+                          : type === "LATE_AUTHORIZATION"
+                            ? "Verify payment capture timestamp. Late authorization may shift settlement by 1 business day."
+                            : type === "GST_DISCREPANCY"
+                              ? "Validate GST computation: should be exactly 18% of MDR. Contact Razorpay support if variance persists."
+                              : type === "UTR_MISMATCH"
+                                ? "Match UTR from bank statement against Razorpay settlement API response. Contact bank if mismatch persists."
+                                : type === "SETTLEMENT_SHORTFALL"
+                                  ? "Aggregate all pay_ IDs in the settlement batch and verify net total against bank credit."
+                                  : type === "MDR_VARIANCE"
+                                    ? "Compare effective TDR rate against contracted rate. Check for payment method surcharge differences."
+                                    : "Human review required to resolve ambiguity safely.",
     status: "OPEN",
   };
 }
@@ -225,6 +244,325 @@ export async function runReconciliation(
       );
       exceptions.push(ex);
     }
+
+    /* ── Razorpay-Specific Decision Branches ── */
+    const isRzpTx = isRazorpayTransaction(bank.description) || isRazorpayTransaction(bank.reference);
+
+    if (isRzpTx) {
+      const bankUTR = extractUTR(bank.description);
+
+      // Find Razorpay payment candidates with matching UTR or settlement ID
+      const rzpPayments = normalized.payments.filter(
+        (p) => !usedPayments.has(p.payment_id) && isRazorpayTransaction(p.merchant),
+      );
+
+      // ── Branch 1: UTR-Based Direct Match ──
+      if (bankUTR) {
+        const utrMatched = rzpPayments.find((p) => p.utr && utrSimilarity(bankUTR, p.utr) >= 0.9);
+        if (utrMatched) {
+          const matchedLedger = normalized.ledger.find(
+            (l) => !usedLedger.has(l.ledger_entry_id) &&
+              (l.invoice_number === utrMatched.order_id || l.normalizedMerchant === "razorpay"),
+          );
+
+          // Check fee alignment
+          const feeScore = feeSimilarity(utrMatched.amount, bank.amount, utrMatched.fee_breakdown);
+          const dateScore = settlementDateSimilarity(utrMatched.payment_date, bank.transaction_date);
+
+          decisions.push({
+            transactionId: txId,
+            bankRecordId: bank.bank_transaction_id,
+            ledgerRecordId: matchedLedger?.ledger_entry_id,
+            paymentRecordIds: [utrMatched.payment_id],
+            status: "MATCHED",
+            confidence: 0.96,
+            decisionMethod: "EXACT",
+            reason: `UTR direct match: bank UTR ${bankUTR} matches Razorpay settlement UTR. Fee-adjusted amount reconciled.`,
+            riskFlags: [],
+            recommendedAction: "Auto-resolved via UTR match.",
+            evidence: {
+              descriptionSimilarity: 1.0,
+              amountSimilarity: round4(amountSimilarity(bank.amount, utrMatched.amount - (utrMatched.fee_amount ?? 0))),
+              dateSimilarity: round4(dateScore),
+              referenceSimilarity: 1.0,
+              consistencyScore: 1.0,
+              overallScore: 0.96,
+              amountDifference: round4(Math.abs(bank.amount - utrMatched.amount)),
+              dateDifferenceDays: dateDiffDays(bank.transaction_date, utrMatched.settlement_date),
+              utrMatch: true,
+              feeReconciled: feeScore >= 0.85,
+              paymentMethod: utrMatched.payment_method,
+              settlementType: utrMatched.settlement_type,
+            },
+          });
+          usedPayments.add(utrMatched.payment_id);
+          if (matchedLedger) usedLedger.add(matchedLedger.ledger_entry_id);
+
+          // Check for GST discrepancy on matched payment
+          if (utrMatched.fee_breakdown) {
+            const gstScore = gstAccuracy(utrMatched.fee_breakdown);
+            if (gstScore < 0.9) {
+              exceptions.push(
+                createException(txId, "GST_DISCREPANCY", 0.70,
+                  `GST on MDR is ₹${utrMatched.fee_breakdown.gst} but expected ₹${round4(utrMatched.fee_breakdown.mdr * 0.18)}. Variance detected.`,
+                  { bank_transaction_id: bank.bank_transaction_id, payment_ids: [utrMatched.payment_id] },
+                  Math.abs(utrMatched.fee_breakdown.gst - utrMatched.fee_breakdown.mdr * 0.18),
+                ),
+              );
+            }
+          }
+          continue;
+        }
+      }
+
+      // ── Branch 2: Fee-Adjusted Amount Match ──
+      const feeAdjustedMatch = rzpPayments.find((p) => {
+        if (!p.fee_amount) return false;
+        const netAmount = p.amount - p.fee_amount;
+        return Math.abs(bank.amount - netAmount) < 1.0;
+      });
+
+      if (feeAdjustedMatch) {
+        const matchedLedger = normalized.ledger.find(
+          (l) => !usedLedger.has(l.ledger_entry_id) &&
+            (l.invoice_number === feeAdjustedMatch.order_id ||
+             Math.abs(l.amount - feeAdjustedMatch.amount) < 0.01),
+        );
+
+        const feeScore = feeSimilarity(feeAdjustedMatch.amount, bank.amount, feeAdjustedMatch.fee_breakdown);
+
+        // Check MDR variance
+        const hasMdrVariance = feeAdjustedMatch.fee_breakdown &&
+          feeScore < 0.95 && feeScore >= 0.6;
+
+        decisions.push({
+          transactionId: txId,
+          bankRecordId: bank.bank_transaction_id,
+          ledgerRecordId: matchedLedger?.ledger_entry_id,
+          paymentRecordIds: [feeAdjustedMatch.payment_id],
+          status: hasMdrVariance ? "REVIEW" : "MATCHED",
+          confidence: hasMdrVariance ? 0.78 : 0.93,
+          decisionMethod: "RULE",
+          reason: hasMdrVariance
+            ? `Net settlement matches after fee deduction but MDR rate differs from standard. Effective rate: ${feeAdjustedMatch.fee_breakdown?.feeRate ? (feeAdjustedMatch.fee_breakdown.feeRate * 100).toFixed(1) + "%" : "unknown"}.`
+            : `Fee-adjusted match: bank amount ₹${bank.amount} equals payment ₹${feeAdjustedMatch.amount} minus fee ₹${feeAdjustedMatch.fee_amount}.`,
+          riskFlags: hasMdrVariance ? ["MDR_VARIANCE"] : [],
+          recommendedAction: hasMdrVariance
+            ? "Compare effective TDR rate against contracted rate."
+            : "Auto-resolved via fee-adjusted reconciliation.",
+          evidence: {
+            descriptionSimilarity: round4(tokenJaccardSimilarity(bank.normalizedMerchant, "razorpay")),
+            amountSimilarity: round4(feeScore),
+            dateSimilarity: round4(settlementDateSimilarity(feeAdjustedMatch.payment_date, bank.transaction_date)),
+            referenceSimilarity: round4(referenceSimilarity(bank.normalizedReference, normalizeReference(feeAdjustedMatch.order_id))),
+            consistencyScore: 1.0,
+            overallScore: hasMdrVariance ? 0.78 : 0.93,
+            amountDifference: round4(Math.abs(bank.amount - (feeAdjustedMatch.amount - (feeAdjustedMatch.fee_amount ?? 0)))),
+            dateDifferenceDays: dateDiffDays(bank.transaction_date, feeAdjustedMatch.settlement_date),
+            feeReconciled: !hasMdrVariance,
+            paymentMethod: feeAdjustedMatch.payment_method,
+            settlementType: feeAdjustedMatch.settlement_type,
+          },
+        });
+        usedPayments.add(feeAdjustedMatch.payment_id);
+        if (matchedLedger) usedLedger.add(matchedLedger.ledger_entry_id);
+
+        if (hasMdrVariance) {
+          exceptions.push(
+            createException(txId, "MDR_VARIANCE", 0.78,
+              `MDR rate variance detected. Expected standard TDR but effective rate is ${feeAdjustedMatch.fee_breakdown?.feeRate ? (feeAdjustedMatch.fee_breakdown.feeRate * 100).toFixed(1) + "%" : "unknown"}.`,
+              { bank_transaction_id: bank.bank_transaction_id, payment_ids: [feeAdjustedMatch.payment_id] },
+              Math.abs(bank.amount - (feeAdjustedMatch.amount - (feeAdjustedMatch.fee_amount ?? 0))),
+            ),
+          );
+        }
+        continue;
+      }
+
+      // ── Branch 3: Refund Netting Detection ──
+      const refundMatch = rzpPayments.find((p) =>
+        p.refund_amount && p.refund_amount > 0 &&
+        Math.abs(bank.amount - (p.amount - (p.fee_amount ?? 0) - p.refund_amount)) < 1.0,
+      );
+
+      if (refundMatch) {
+        const expectedNet = refundMatch.amount - (refundMatch.fee_amount ?? 0) - (refundMatch.refund_amount ?? 0);
+        decisions.push({
+          transactionId: txId,
+          bankRecordId: bank.bank_transaction_id,
+          paymentRecordIds: [refundMatch.payment_id],
+          status: "REVIEW",
+          confidence: 0.82,
+          decisionMethod: "RULE",
+          reason: `Refund netting detected: bank credit ₹${bank.amount} = payment ₹${refundMatch.amount} - fee ₹${refundMatch.fee_amount ?? 0} - refund ₹${refundMatch.refund_amount}.`,
+          riskFlags: ["REFUND_MISMATCH"],
+          recommendedAction: "Cross-verify refund amount against Razorpay dashboard.",
+          evidence: {
+            descriptionSimilarity: 1.0,
+            amountSimilarity: round4(amountSimilarity(bank.amount, expectedNet)),
+            dateSimilarity: round4(settlementDateSimilarity(refundMatch.payment_date, bank.transaction_date)),
+            referenceSimilarity: 0.5,
+            consistencyScore: 1.0,
+            overallScore: 0.82,
+            amountDifference: round4(Math.abs(bank.amount - expectedNet)),
+            dateDifferenceDays: dateDiffDays(bank.transaction_date, refundMatch.settlement_date),
+            feeReconciled: true,
+            paymentMethod: refundMatch.payment_method,
+          },
+        });
+        usedPayments.add(refundMatch.payment_id);
+        exceptions.push(
+          createException(txId, "REFUND_MISMATCH", 0.82,
+            `Settlement netted with refund of ₹${refundMatch.refund_amount}.`,
+            { bank_transaction_id: bank.bank_transaction_id, payment_ids: [refundMatch.payment_id] },
+            refundMatch.refund_amount,
+          ),
+        );
+        continue;
+      }
+
+      // ── Branch 4: Chargeback Identification ──
+      const chargebackMatch = rzpPayments.find(
+        (p) => p.dispute_status === "OPEN" || p.dispute_status === "UNDER_REVIEW",
+      );
+
+      if (chargebackMatch && bank.amount === 0) {
+        decisions.push({
+          transactionId: txId,
+          bankRecordId: bank.bank_transaction_id,
+          paymentRecordIds: [chargebackMatch.payment_id],
+          status: "UNRESOLVED",
+          confidence: 0.45,
+          decisionMethod: "RULE",
+          reason: `Chargeback detected: payment ${chargebackMatch.payment_id} is disputed (status: ${chargebackMatch.dispute_status}). Settlement deducted.`,
+          riskFlags: ["CHARGEBACK"],
+          recommendedAction: "Check dispute status in Razorpay dashboard. Submit evidence within SLA.",
+          evidence: {
+            descriptionSimilarity: 1.0,
+            amountSimilarity: 0,
+            dateSimilarity: round4(settlementDateSimilarity(chargebackMatch.payment_date, bank.transaction_date)),
+            referenceSimilarity: 0.5,
+            consistencyScore: 1.0,
+            overallScore: 0.45,
+            amountDifference: chargebackMatch.amount,
+            dateDifferenceDays: dateDiffDays(bank.transaction_date, chargebackMatch.settlement_date),
+            paymentMethod: chargebackMatch.payment_method,
+            settlementType: "ADJUSTMENT",
+          },
+        });
+        usedPayments.add(chargebackMatch.payment_id);
+        exceptions.push(
+          createException(txId, "CHARGEBACK", 0.45,
+            `Payment disputed. Amount ₹${chargebackMatch.amount} deducted from settlement.`,
+            { bank_transaction_id: bank.bank_transaction_id, payment_ids: [chargebackMatch.payment_id] },
+            chargebackMatch.amount,
+          ),
+        );
+        continue;
+      }
+
+      // ── Branch 5: Settlement Batching (Multi-payment per UTR) ──
+      if (bankUTR) {
+        const batchPayments = rzpPayments.filter(
+          (p) => p.utr === bankUTR && !usedPayments.has(p.payment_id),
+        );
+
+        if (batchPayments.length >= 2) {
+          const batchNetTotal = batchPayments.reduce(
+            (sum, p) => sum + p.amount - (p.fee_amount ?? 0),
+            0,
+          );
+
+          if (Math.abs(bank.amount - batchNetTotal) < 2.0) {
+            decisions.push({
+              transactionId: txId,
+              bankRecordId: bank.bank_transaction_id,
+              paymentRecordIds: batchPayments.map((p) => p.payment_id),
+              status: "AI_MATCHED",
+              confidence: 0.91,
+              decisionMethod: "AI_ASSIST",
+              reason: `Settlement batching: ${batchPayments.length} payments share UTR ${bankUTR}. Aggregate net ₹${round4(batchNetTotal)} ≈ bank ₹${bank.amount}.`,
+              riskFlags: ["PARTIAL_PAYMENT"],
+              recommendedAction: "Auto-resolved with settlement batch trace recorded.",
+              evidence: {
+                descriptionSimilarity: 1.0,
+                amountSimilarity: round4(amountSimilarity(bank.amount, batchNetTotal)),
+                dateSimilarity: 1.0,
+                referenceSimilarity: 1.0,
+                consistencyScore: 1.0,
+                overallScore: 0.91,
+                amountDifference: round4(Math.abs(bank.amount - batchNetTotal)),
+                dateDifferenceDays: 0,
+                utrMatch: true,
+                feeReconciled: true,
+                settlementType: "PAYMENT",
+              },
+            });
+
+            batchPayments.forEach((p) => usedPayments.add(p.payment_id));
+            // Also mark corresponding ledger entries as used
+            for (const bp of batchPayments) {
+              const matchedLedger = normalized.ledger.find(
+                (l) => !usedLedger.has(l.ledger_entry_id) && l.invoice_number === bp.order_id,
+              );
+              if (matchedLedger) usedLedger.add(matchedLedger.ledger_entry_id);
+            }
+
+            exceptions.push(
+              createException(txId, "PARTIAL_PAYMENT", 0.91,
+                `${batchPayments.length} payments batched into single settlement UTR.`,
+                { bank_transaction_id: bank.bank_transaction_id, payment_ids: batchPayments.map((p) => p.payment_id) },
+              ),
+            );
+            continue;
+          }
+        }
+      }
+
+      // ── Branch 6: UTR Mismatch Detection ──
+      if (bankUTR) {
+        const utrMismatch = rzpPayments.find((p) => {
+          if (!p.utr) return false;
+          const score = utrSimilarity(bankUTR, p.utr);
+          return score > 0 && score < 0.9; // Partial but not exact match
+        });
+
+        if (utrMismatch) {
+          decisions.push({
+            transactionId: txId,
+            bankRecordId: bank.bank_transaction_id,
+            paymentRecordIds: [utrMismatch.payment_id],
+            status: "REVIEW",
+            confidence: 0.65,
+            decisionMethod: "RULE",
+            reason: `UTR partial match: bank UTR ${bankUTR} partially matches Razorpay UTR ${utrMismatch.utr}. Manual verification required.`,
+            riskFlags: ["UTR_MISMATCH"],
+            recommendedAction: "Match UTR from bank statement against Razorpay settlement API response.",
+            evidence: {
+              descriptionSimilarity: 1.0,
+              amountSimilarity: round4(amountSimilarity(bank.amount, utrMismatch.amount - (utrMismatch.fee_amount ?? 0))),
+              dateSimilarity: round4(settlementDateSimilarity(utrMismatch.payment_date, bank.transaction_date)),
+              referenceSimilarity: round4(utrSimilarity(bankUTR, utrMismatch.utr ?? "")),
+              consistencyScore: 1.0,
+              overallScore: 0.65,
+              amountDifference: round4(Math.abs(bank.amount - (utrMismatch.amount - (utrMismatch.fee_amount ?? 0)))),
+              dateDifferenceDays: dateDiffDays(bank.transaction_date, utrMismatch.settlement_date),
+              utrMatch: false,
+              paymentMethod: utrMismatch.payment_method,
+            },
+          });
+          usedPayments.add(utrMismatch.payment_id);
+          exceptions.push(
+            createException(txId, "UTR_MISMATCH", 0.65,
+              `Bank UTR ${bankUTR} does not exactly match Razorpay UTR ${utrMismatch.utr}.`,
+              { bank_transaction_id: bank.bank_transaction_id, payment_ids: [utrMismatch.payment_id] },
+            ),
+          );
+          continue;
+        }
+      }
+    }
+    /* ── End Razorpay-Specific Branches ── */
 
     const ledgerCandidates = normalized.ledger
       .filter((l) => !usedLedger.has(l.ledger_entry_id))

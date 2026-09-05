@@ -3,6 +3,7 @@ import type {
   ExceptionRecord,
   GroundTruthRecord,
   ReconciliationDecision,
+  ScenarioMetric,
 } from "@/lib/finance/types";
 
 function round(value: number, digits = 2): number {
@@ -71,6 +72,51 @@ export function evaluateRun(params: {
   const humanReviewRate = totalTransactions === 0 ? 0 : (reviewRequired / totalTransactions) * 100;
   const throughputPerSecond = totalProcessingMs === 0 ? 0 : sourceRecordsProcessed / (totalProcessingMs / 1000);
 
+  /* ── Razorpay-Specific Metrics ── */
+
+  // Per-scenario accuracy breakdown
+  const scenarioGroups = new Map<string, { total: number; correct: number }>();
+  const decisionMap = new Map(decisions.map((d) => [d.transactionId, d]));
+
+  for (const gt of groundTruth) {
+    const group = scenarioGroups.get(gt.scenario) ?? { total: 0, correct: 0 };
+    group.total += 1;
+
+    const decision = decisionMap.get(gt.transaction_id);
+    if (decision) {
+      // A decision is "correct" if its status matches expected, or if matched/ai_matched aligns with expected matched
+      const expectedMatched = gt.expected_status === "MATCHED" || gt.expected_status === "AI_MATCHED";
+      const actualMatched = decision.status === "MATCHED" || decision.status === "AI_MATCHED";
+      if (decision.status === gt.expected_status || (expectedMatched && actualMatched)) {
+        group.correct += 1;
+      }
+    }
+
+    scenarioGroups.set(gt.scenario, group);
+  }
+
+  const scenarioBreakdown: ScenarioMetric[] = [...scenarioGroups.entries()].map(([scenario, data]) => ({
+    scenario,
+    total: data.total,
+    correct: data.correct,
+    accuracy: round(data.total === 0 ? 0 : (data.correct / data.total) * 100),
+  }));
+
+  // Fee reconciliation accuracy (how many Razorpay txns have feeReconciled=true)
+  const rzpDecisions = decisions.filter((d) => d.evidence.feeReconciled !== undefined);
+  const feeReconciledCount = rzpDecisions.filter((d) => d.evidence.feeReconciled === true).length;
+  const feeReconciliationAccuracy = rzpDecisions.length === 0 ? undefined : round((feeReconciledCount / rzpDecisions.length) * 100);
+
+  // UTR match rate
+  const utrDecisions = decisions.filter((d) => d.evidence.utrMatch !== undefined);
+  const utrMatchCount = utrDecisions.filter((d) => d.evidence.utrMatch === true).length;
+  const utrMatchRate = utrDecisions.length === 0 ? undefined : round((utrMatchCount / utrDecisions.length) * 100);
+
+  // Settlement aggregation accuracy (multi-payment batches)
+  const batchDecisions = decisions.filter((d) => d.paymentRecordIds.length >= 2);
+  const batchCorrect = batchDecisions.filter((d) => d.status === "AI_MATCHED" || d.status === "MATCHED").length;
+  const settlementAggregationAccuracy = batchDecisions.length === 0 ? undefined : round((batchCorrect / batchDecisions.length) * 100);
+
   return {
     totalTransactions,
     sourceRecordsProcessed,
@@ -93,5 +139,11 @@ export function evaluateRun(params: {
     aiProcessingMs,
     totalProcessingMs,
     throughputPerSecond: round(throughputPerSecond),
+    /* ── Razorpay-specific ── */
+    scenarioBreakdown,
+    feeReconciliationAccuracy,
+    utrMatchRate,
+    settlementAggregationAccuracy,
   };
 }
+

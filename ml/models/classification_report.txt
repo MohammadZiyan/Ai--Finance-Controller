@@ -1,0 +1,41 @@
+=== AI Finance Controller ML Evaluation Report ===
+
+--- Binary Model (is_anomaly) ---
+ROC-AUC: 0.8548
+Accuracy: 0.9730
+Precision: 0.9963
+Recall: 0.6671
+F1 Score: 0.7991
+Confusion Matrix:
+[[9193    2]
+ [ 268  537]]
+
+--- Multi-Class Exception Classifier ---
+                     precision    recall  f1-score   support
+
+  duplicate_payment       1.00      1.00      1.00        71
+       fee_mismatch       1.00      1.00      1.00        71
+ missing_settlement       1.00      1.00      1.00        85
+               none       0.97      0.80      0.88      9195
+    refund_mismatch       0.02      0.11      0.03        76
+settlement_mismatch       1.00      1.00      1.00       159
+     timing_anomaly       0.01      0.06      0.02        85
+     unusual_amount       1.00      1.00      1.00       151
+   velocity_anomaly       0.01      0.08      0.02       107
+
+           accuracy                           0.79     10000
+          macro avg       0.67      0.67      0.66     10000
+       weighted avg       0.95      0.79      0.86     10000
+
+
+--- Top 10 Feature Importances ---
+  fee_rate: binary=434, multiclass=3961
+  tax_fee_ratio: binary=383, multiclass=4414
+  risk_score: binary=351, multiclass=2825
+  avg_transaction_amount: binary=334, multiclass=2761
+  set_pay_delay_days: binary=324, multiclass=3925
+  amount_to_avg_ratio: binary=314, multiclass=2920
+  amount: binary=268, multiclass=2859
+  hour: binary=180, multiclass=1442
+  settlement_net_diff: binary=156, multiclass=2014
+  pay_ord_delay_sec: binary=145, multiclass=855

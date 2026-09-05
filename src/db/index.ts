@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
@@ -120,14 +121,64 @@ CREATE TABLE IF NOT EXISTS "audit_trail" (
 );
 `;
 
+function cleanupStaleLock(dir: string) {
+  try {
+    const pidFile = path.resolve(dir, "postmaster.pid");
+    if (fs.existsSync(pidFile)) {
+      fs.unlinkSync(pidFile);
+    }
+  } catch {
+    // Ignore cleanup error
+  }
+}
+
+let initPromise: Promise<void> | null = null;
+
+export async function ensureDbReady(): Promise<void> {
+  if (initPromise) {
+    return initPromise;
+  }
+
+  initPromise = (async () => {
+    const isPostgres = Boolean(
+      databaseUrl &&
+        (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://"))
+    );
+
+    if (isPostgres) {
+      const p = globalForDb.__arenaNextJsPostgresqlPool;
+      if (p) {
+        try {
+          await p.query(INIT_SCHEMA_SQL);
+        } catch (err: any) {
+          // If concurrent sequence creation occurred (code 23505), ignore safely
+          if (err?.code !== "23505") {
+            throw err;
+          }
+        }
+      }
+    } else {
+      const pglite = globalForDb.__financePglite;
+      if (pglite) {
+        await pglite.exec(INIT_SCHEMA_SQL);
+      }
+    }
+  })();
+
+  return initPromise;
+}
+
 function getDbInstance() {
   if (globalForDb.__financeDb) {
     return globalForDb.__financeDb;
   }
 
-  const usePostgres = databaseUrl && (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://"));
+  const isPostgres = Boolean(
+    databaseUrl &&
+      (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://"))
+  );
 
-  if (usePostgres) {
+  if (isPostgres) {
     try {
       const pool =
         globalForDb.__arenaNextJsPostgresqlPool ??
@@ -141,6 +192,12 @@ function getDbInstance() {
 
       const dbInstance = drizzleNodePg(pool, { schema });
       globalForDb.__financeDb = dbInstance;
+
+      // Ensure tables exist on background initialization
+      ensureDbReady().catch((err) => {
+        console.warn("PostgreSQL schema initialization notice:", err?.message || err);
+      });
+
       return dbInstance;
     } catch (err) {
       console.warn("PostgreSQL connection error, falling back to embedded PGlite:", err);
@@ -149,23 +206,42 @@ function getDbInstance() {
 
   // Embedded PGlite fallback for zero-dependency local runs
   const isBuild = process.env.NEXT_PHASE === "phase-production-build";
-  let pglite: PGlite;
-
   if (isBuild) {
-    pglite = new PGlite();
-  } else {
-    const dataDir = path.resolve(process.cwd(), "data");
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    const pglitePath = path.resolve(dataDir, "pgdata");
-    pglite = globalForDb.__financePglite ?? new PGlite(pglitePath);
-    globalForDb.__financePglite = pglite;
+    const dummyProxy: any = new Proxy({}, {
+      get: () => () => Promise.resolve([]),
+    });
+    return dummyProxy;
   }
 
-  // Initialize schema if not already initialized
-  if (!globalForDb.__financeDb) {
-    pglite.exec(INIT_SCHEMA_SQL).catch(() => undefined);
+  let pglite: PGlite;
+  const dataDir = path.resolve(process.cwd(), "data");
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  const pglitePath = path.resolve(dataDir, "pgdata");
+    
+    // Auto-clean stale lockfile from unclean shutdowns
+    cleanupStaleLock(pglitePath);
+
+    try {
+      pglite = globalForDb.__financePglite ?? new PGlite(pglitePath);
+    } catch (err) {
+      console.warn("PGlite data directory recovery needed. Resetting database folder:", err);
+      try {
+        fs.rmSync(pglitePath, { recursive: true, force: true });
+        pglite = new PGlite(pglitePath);
+      } catch {
+        pglite = new PGlite();
+      }
+    }
+
+  globalForDb.__financePglite = pglite;
+
+  // Initiate schema initialization at runtime (skip during static build analysis)
+  if (!isBuild) {
+    pglite.exec(INIT_SCHEMA_SQL).catch((err) => {
+      console.warn("Embedded database schema initialization notice:", err?.message || err);
+    });
   }
 
   const dbInstance = drizzlePglite(pglite, { schema });
@@ -173,5 +249,29 @@ function getDbInstance() {
   return dbInstance;
 }
 
+export async function closeDb(): Promise<void> {
+  if (globalForDb.__financePglite) {
+    try {
+      await globalForDb.__financePglite.close();
+    } catch {
+      // Ignore close error
+    }
+    delete globalForDb.__financePglite;
+    delete globalForDb.__financeDb;
+  }
+  if (globalForDb.__arenaNextJsPostgresqlPool) {
+    try {
+      await globalForDb.__arenaNextJsPostgresqlPool.end();
+    } catch {
+      // Ignore end error
+    }
+    delete globalForDb.__arenaNextJsPostgresqlPool;
+    delete globalForDb.__financeDb;
+  }
+}
+
 export const db: ReturnType<typeof drizzleNodePg> = getDbInstance() as any;
 export const pool = globalForDb.__arenaNextJsPostgresqlPool;
+export const isUsingPostgres = Boolean(databaseUrl && (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://")));
+
+

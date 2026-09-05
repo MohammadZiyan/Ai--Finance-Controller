@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type SummaryResponse = {
   ok: boolean;
@@ -135,13 +135,13 @@ export function Dashboard() {
     }
   }
 
-  async function fetchTransactionDetail(transactionId: string) {
+  const fetchTransactionDetail = useCallback(async (transactionId: string) => {
     setSelectedTransactionId(transactionId);
     const query = runId ? `?runId=${runId}` : "";
     const res = await fetch(`/api/transactions/${transactionId}${query}`);
     const json = await res.json();
     setSelectedTransaction(json.data ?? null);
-  }
+  }, [runId]);
 
   async function updateException(id: number, action: string) {
     await fetch(`/api/exceptions/${id}/resolve`, {
@@ -188,7 +188,7 @@ export function Dashboard() {
   useEffect(() => {
     if (!selectedTransactionId) return;
     fetchTransactionDetail(selectedTransactionId).catch(() => undefined);
-  }, [runId, selectedTransactionId]);
+  }, [fetchTransactionDetail, selectedTransactionId]);
 
   const metrics = (summary?.run.metrics ?? {}) as Record<string, number>;
 

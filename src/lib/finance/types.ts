@@ -1,5 +1,20 @@
 export type Currency = "INR" | "USD" | "EUR";
 
+export type PaymentMethod = "UPI" | "CARD" | "NETBANKING" | "WALLET" | "EMI" | "PAY_LATER";
+
+export type CardNetwork = "VISA" | "MASTERCARD" | "RUPAY" | "AMEX" | "DINERS" | "MAESTRO";
+
+export type SettlementType = "PAYMENT" | "REFUND" | "TRANSFER" | "ADJUSTMENT" | "FEE_REVERSAL";
+
+export type DisputeStatus = "NONE" | "OPEN" | "UNDER_REVIEW" | "WON" | "LOST";
+
+export interface RazorpayFeeBreakdown {
+  mdr: number;
+  gst: number;
+  totalFee: number;
+  feeRate: number;
+}
+
 export type ExceptionType =
   | "AMOUNT_MISMATCH"
   | "MISSING_LEDGER_RECORD"
@@ -10,6 +25,13 @@ export type ExceptionType =
   | "PARTIAL_PAYMENT"
   | "UNEXPECTED_FEE"
   | "CURRENCY_MISMATCH"
+  | "REFUND_MISMATCH"
+  | "CHARGEBACK"
+  | "LATE_AUTHORIZATION"
+  | "GST_DISCREPANCY"
+  | "UTR_MISMATCH"
+  | "SETTLEMENT_SHORTFALL"
+  | "MDR_VARIANCE"
   | "UNRESOLVED";
 
 export type ReconciliationStatus = "MATCHED" | "AI_MATCHED" | "REVIEW" | "UNRESOLVED";
@@ -46,10 +68,20 @@ export interface PaymentRecord {
   reference: string;
   amount: number;
   currency: Currency;
-  status: "SETTLED" | "PENDING" | "FAILED";
+  status: "SETTLED" | "PENDING" | "FAILED" | "REFUNDED" | "DISPUTED";
   settlement_date: string;
   fee_amount?: number;
   synthetic_txn_id?: string;
+  /* ── Razorpay-specific fields ── */
+  payment_method?: PaymentMethod;
+  card_network?: CardNetwork;
+  utr?: string;
+  settlement_id?: string;
+  order_id?: string;
+  fee_breakdown?: RazorpayFeeBreakdown;
+  refund_amount?: number;
+  dispute_status?: DisputeStatus;
+  settlement_type?: SettlementType;
 }
 
 export interface GroundTruthRecord {
@@ -94,6 +126,11 @@ export interface MatchEvidence {
   overallScore: number;
   amountDifference: number;
   dateDifferenceDays: number;
+  /* ── Razorpay-specific evidence ── */
+  utrMatch?: boolean;
+  feeReconciled?: boolean;
+  paymentMethod?: string;
+  settlementType?: string;
 }
 
 export interface ReconciliationDecision {
@@ -128,6 +165,13 @@ export interface ExceptionRecord {
   status: "OPEN" | "RESOLVED" | "REJECTED";
 }
 
+export interface ScenarioMetric {
+  scenario: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+}
+
 export interface EvaluationMetrics {
   totalTransactions: number;
   sourceRecordsProcessed: number;
@@ -150,6 +194,11 @@ export interface EvaluationMetrics {
   aiProcessingMs: number;
   totalProcessingMs: number;
   throughputPerSecond: number;
+  /* ── Razorpay-specific metrics ── */
+  scenarioBreakdown?: ScenarioMetric[];
+  feeReconciliationAccuracy?: number;
+  utrMatchRate?: number;
+  settlementAggregationAccuracy?: number;
 }
 
 export interface ReconciliationRunOutput {

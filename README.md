@@ -124,6 +124,50 @@ Each transaction group has ground truth:
 - Rule vs AI processing time
 - Throughput (records/sec)
 
+## Database Architecture & Modes
+
+The project supports two database operation modes:
+
+1. **Embedded PGlite (Default / Zero-Config)**:
+   - Uses `@electric-sql/pglite` stored locally in `./data/pgdata`.
+   - **Zero external installation needed** (no PostgreSQL or Docker required).
+   - Ideal for immediate local development and quick evaluation.
+   - Self-heals stale locks on startup.
+
+2. **Standalone PostgreSQL / Docker / Supabase / Neon**:
+   - Provide `DATABASE_URL` in `.env`:
+     ```env
+     DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/app_db
+     ```
+   - Launch PostgreSQL 16 container with Docker Compose:
+     ```bash
+     npm run docker:db
+     # or: docker compose up -d postgres
+     ```
+
+3. **Full-Stack Containerized Deployment (Docker Compose)**:
+   - Run both PostgreSQL 16 and the Next.js production web app containerized:
+     ```bash
+     npm run docker:up
+     # or: docker compose up --build -d
+     ```
+   - The app container automatically waits for PostgreSQL healthchecks, applies schema migrations, auto-seeds initial financial records, and serves the dashboard on [http://localhost:3000](http://localhost:3000).
+
+### Database & Docker Management Commands
+
+| Command | Description |
+| :--- | :--- |
+| `npm run docker:up` | Launch full stack (PostgreSQL + Next.js Web App) in Docker. |
+| `npm run docker:down` | Stop and tear down Docker containers and networks. |
+| `npm run docker:db` | Start only the PostgreSQL 16 container for local host development. |
+| `npm run docker:build` | Build or rebuild the multi-stage Next.js production container image. |
+| `npm run docker:logs` | Stream live logs from the Docker application container. |
+| `npm run db:init` | Apply schema migrations and verify all 7 tables exist. |
+| `npm run db:seed` | Generate and reconcile 150 synthetic transactions and seed the DB. |
+| `npm run db:reset` | Drop all tables, reapply migrations, and reset database. |
+| `npm run db:push` | Push Drizzle schema changes to external PostgreSQL. |
+| `npm run db:studio` | Launch Drizzle Studio UI to browse database tables. |
+
 ## Run locally
 
 1. Install dependencies:
@@ -132,32 +176,46 @@ Each transaction group has ground truth:
 npm install
 ```
 
-2. Configure env:
+2. Configure environment:
 
 ```bash
 cp .env.example .env
-# edit DATABASE_URL if needed
+# Embedded PGlite is used by default.
+# If using external PostgreSQL, uncomment DATABASE_URL in .env
 ```
 
-3. Apply schema:
+3. Initialize & Seed Database:
 
 ```bash
-npx drizzle-kit push
+# Initialize database tables
+npm run db:init
+
+# Optional: pre-populate with synthetic demo batch (150 transactions)
+npm run db:seed
 ```
 
-4. Start app:
+4. Start development server:
 
 ```bash
 npm run dev
 ```
 
-5. Open dashboard and click **Run Demo Dataset**.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Testing
 
-Sample tests are included for:
+Run the automated test suite covering normalization, scoring, end-to-end reconciliation, and database transactions:
 
-- Normalization
+```bash
+npm test
+```
+
+Typecheck:
+
+```bash
+npm run typecheck
+```
+
 - Scoring
 - End-to-end batch reconciliation output
 
