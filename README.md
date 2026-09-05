@@ -239,3 +239,9 @@ Test files are in `tests/`.
 ## Product principle
 
 The system prioritizes **honest exception handling** over inflated match rate. If confidence is insufficient, it marks the transaction for review or unresolved status.
+
+## Presentation & Demo Resources
+
+- [4-Minute Presentation Script (Hackathon/Executive Pitch)](docs/presentation_script_4min.md)
+- [Website Walkthrough Script (Live Demo & Screen Recording)](docs/website_walkthrough_script.md)
+
